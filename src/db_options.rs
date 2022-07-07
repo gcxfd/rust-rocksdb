@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -24,6 +24,7 @@ use crate::{
     comparator::{self, ComparatorCallback, CompareFn},
     db::DBAccess,
     ffi,
+    ffi_util::{to_cpath, CStrLike},
     merge_operator::{
         self, full_merge_callback, partial_merge_callback, MergeFn, MergeOperatorCallback,
     },
@@ -495,7 +496,7 @@ impl BlockBasedOptions {
     /// incompatible with block-based filters.
     pub fn set_partition_filters(&mut self, size: bool) {
         unsafe {
-            ffi::rocksdb_block_based_options_set_partition_filters(self.inner, u8::from(size));
+            ffi::rocksdb_block_based_options_set_partition_filters(self.inner, c_uchar::from(size));
         }
     }
 
@@ -557,7 +558,7 @@ impl BlockBasedOptions {
     /// Disable block cache
     pub fn disable_cache(&mut self) {
         unsafe {
-            ffi::rocksdb_block_based_options_set_no_block_cache(self.inner, u8::from(true));
+            ffi::rocksdb_block_based_options_set_no_block_cache(self.inner, c_uchar::from(true));
         }
     }
 
@@ -638,7 +639,7 @@ impl BlockBasedOptions {
         unsafe {
             ffi::rocksdb_block_based_options_set_cache_index_and_filter_blocks(
                 self.inner,
-                u8::from(v),
+                c_uchar::from(v),
             );
         }
     }
@@ -671,7 +672,7 @@ impl BlockBasedOptions {
         unsafe {
             ffi::rocksdb_block_based_options_set_pin_l0_filter_and_index_blocks_in_cache(
                 self.inner,
-                u8::from(v),
+                c_uchar::from(v),
             );
         }
     }
@@ -687,7 +688,7 @@ impl BlockBasedOptions {
         unsafe {
             ffi::rocksdb_block_based_options_set_pin_top_level_index_and_filter(
                 self.inner,
-                u8::from(v),
+                c_uchar::from(v),
             );
         }
     }
@@ -772,7 +773,7 @@ impl BlockBasedOptions {
     /// Defaults to true.
     pub fn set_whole_key_filtering(&mut self, v: bool) {
         unsafe {
-            ffi::rocksdb_block_based_options_set_whole_key_filtering(self.inner, u8::from(v));
+            ffi::rocksdb_block_based_options_set_whole_key_filtering(self.inner, c_uchar::from(v));
         }
     }
 }
@@ -832,9 +833,8 @@ impl CuckooTableOptions {
     /// table property.
     /// Default: false
     pub fn set_identity_as_first_hash(&mut self, flag: bool) {
-        let v = u8::from(flag);
         unsafe {
-            ffi::rocksdb_cuckoo_options_set_identity_as_first_hash(self.inner, v);
+            ffi::rocksdb_cuckoo_options_set_identity_as_first_hash(self.inner, c_uchar::from(flag));
         }
     }
 
@@ -844,9 +844,8 @@ impl CuckooTableOptions {
     /// be power of two, and bit and is used to calculate hash, which is faster in general.
     /// Default: true
     pub fn set_use_module_hash(&mut self, flag: bool) {
-        let v = u8::from(flag);
         unsafe {
-            ffi::rocksdb_cuckoo_options_set_use_module_hash(self.inner, v);
+            ffi::rocksdb_cuckoo_options_set_use_module_hash(self.inner, c_uchar::from(flag));
         }
     }
 }
@@ -957,7 +956,10 @@ impl Options {
     /// ```
     pub fn create_if_missing(&mut self, create_if_missing: bool) {
         unsafe {
-            ffi::rocksdb_options_set_create_if_missing(self.inner, u8::from(create_if_missing));
+            ffi::rocksdb_options_set_create_if_missing(
+                self.inner,
+                c_uchar::from(create_if_missing),
+            );
         }
     }
 
@@ -978,7 +980,7 @@ impl Options {
         unsafe {
             ffi::rocksdb_options_set_create_missing_column_families(
                 self.inner,
-                u8::from(create_missing_cfs),
+                c_uchar::from(create_missing_cfs),
             );
         }
     }
@@ -988,7 +990,7 @@ impl Options {
     /// Default: false
     pub fn set_error_if_exists(&mut self, enabled: bool) {
         unsafe {
-            ffi::rocksdb_options_set_error_if_exists(self.inner, u8::from(enabled));
+            ffi::rocksdb_options_set_error_if_exists(self.inner, c_uchar::from(enabled));
         }
     }
 
@@ -1006,7 +1008,7 @@ impl Options {
     /// Default: false
     pub fn set_paranoid_checks(&mut self, enabled: bool) {
         unsafe {
-            ffi::rocksdb_options_set_paranoid_checks(self.inner, u8::from(enabled));
+            ffi::rocksdb_options_set_paranoid_checks(self.inner, c_uchar::from(enabled));
         }
     }
 
@@ -1207,7 +1209,7 @@ impl Options {
                 level,
                 strategy,
                 max_dict_bytes,
-                u8::from(enabled),
+                c_uchar::from(enabled),
             );
         }
     }
@@ -1239,7 +1241,7 @@ impl Options {
             ffi::rocksdb_options_set_bottommost_compression_options_zstd_max_train_bytes(
                 self.inner,
                 value,
-                u8::from(enabled),
+                c_uchar::from(enabled),
             );
         }
     }
@@ -1254,10 +1256,7 @@ impl Options {
     /// Default: `0`
     pub fn set_compaction_readahead_size(&mut self, compaction_readahead_size: usize) {
         unsafe {
-            ffi::rocksdb_options_compaction_readahead_size(
-                self.inner,
-                compaction_readahead_size as usize,
-            );
+            ffi::rocksdb_options_compaction_readahead_size(self.inner, compaction_readahead_size);
         }
     }
 
@@ -1268,17 +1267,20 @@ impl Options {
     /// Default: false.
     pub fn set_level_compaction_dynamic_level_bytes(&mut self, v: bool) {
         unsafe {
-            ffi::rocksdb_options_set_level_compaction_dynamic_level_bytes(self.inner, u8::from(v));
+            ffi::rocksdb_options_set_level_compaction_dynamic_level_bytes(
+                self.inner,
+                c_uchar::from(v),
+            );
         }
     }
 
     pub fn set_merge_operator_associative<F: MergeFn + Clone>(
         &mut self,
-        name: &str,
+        name: impl CStrLike,
         full_merge_fn: F,
     ) {
         let cb = Box::new(MergeOperatorCallback {
-            name: CString::new(name.as_bytes()).unwrap(),
+            name: name.into_c_string().unwrap(),
             full_merge_fn: full_merge_fn.clone(),
             partial_merge_fn: full_merge_fn,
         });
@@ -1298,12 +1300,12 @@ impl Options {
 
     pub fn set_merge_operator<F: MergeFn, PF: MergeFn>(
         &mut self,
-        name: &str,
+        name: impl CStrLike,
         full_merge_fn: F,
         partial_merge_fn: PF,
     ) {
         let cb = Box::new(MergeOperatorCallback {
-            name: CString::new(name.as_bytes()).unwrap(),
+            name: name.into_c_string().unwrap(),
             full_merge_fn,
             partial_merge_fn,
         });
@@ -1339,12 +1341,12 @@ impl Options {
     ///
     /// If multi-threaded compaction is used, `filter_fn` may be called multiple times
     /// simultaneously.
-    pub fn set_compaction_filter<F>(&mut self, name: &str, filter_fn: F)
+    pub fn set_compaction_filter<F>(&mut self, name: impl CStrLike, filter_fn: F)
     where
         F: CompactionFilterFn + Send + 'static,
     {
         let cb = Box::new(CompactionFilterCallback {
-            name: CString::new(name.as_bytes()).unwrap(),
+            name: name.into_c_string().unwrap(),
             filter_fn,
         });
 
@@ -1391,9 +1393,9 @@ impl Options {
     /// The client must ensure that the comparator supplied here has the same
     /// name and orders keys *exactly* the same as the comparator provided to
     /// previous open calls on the same DB.
-    pub fn set_comparator(&mut self, name: &str, compare_fn: CompareFn) {
+    pub fn set_comparator(&mut self, name: impl CStrLike, compare_fn: CompareFn) {
         let cb = Box::new(ComparatorCallback {
-            name: CString::new(name.as_bytes()).unwrap(),
+            name: name.into_c_string().unwrap(),
             f: compare_fn,
         });
 
@@ -1444,7 +1446,7 @@ impl Options {
         unsafe {
             ffi::rocksdb_options_set_optimize_filters_for_hits(
                 self.inner,
-                i32::from(optimize_for_hits),
+                c_int::from(optimize_for_hits),
             );
         }
     }
@@ -1521,7 +1523,7 @@ impl Options {
     /// ```
     pub fn set_use_fsync(&mut self, useit: bool) {
         unsafe {
-            ffi::rocksdb_options_set_use_fsync(self.inner, i32::from(useit));
+            ffi::rocksdb_options_set_use_fsync(self.inner, c_int::from(useit));
         }
     }
 
@@ -1534,7 +1536,7 @@ impl Options {
     ///
     /// Default: empty
     pub fn set_db_log_dir<P: AsRef<Path>>(&mut self, path: P) {
-        let p = CString::new(path.as_ref().to_string_lossy().as_bytes()).unwrap();
+        let p = to_cpath(path).unwrap();
         unsafe {
             ffi::rocksdb_options_set_db_log_dir(self.inner, p.as_ptr());
         }
@@ -1633,7 +1635,10 @@ impl Options {
     /// ```
     pub fn set_allow_concurrent_memtable_write(&mut self, allow: bool) {
         unsafe {
-            ffi::rocksdb_options_set_allow_concurrent_memtable_write(self.inner, u8::from(allow));
+            ffi::rocksdb_options_set_allow_concurrent_memtable_write(
+                self.inner,
+                c_uchar::from(allow),
+            );
         }
     }
 
@@ -1647,7 +1652,7 @@ impl Options {
         unsafe {
             ffi::rocksdb_options_set_enable_write_thread_adaptive_yield(
                 self.inner,
-                u8::from(enabled),
+                c_uchar::from(enabled),
             );
         }
     }
@@ -1684,7 +1689,7 @@ impl Options {
     /// ```
     pub fn set_use_direct_reads(&mut self, enabled: bool) {
         unsafe {
-            ffi::rocksdb_options_set_use_direct_reads(self.inner, u8::from(enabled));
+            ffi::rocksdb_options_set_use_direct_reads(self.inner, c_uchar::from(enabled));
         }
     }
 
@@ -1710,7 +1715,7 @@ impl Options {
         unsafe {
             ffi::rocksdb_options_set_use_direct_io_for_flush_and_compaction(
                 self.inner,
-                u8::from(enabled),
+                c_uchar::from(enabled),
             );
         }
     }
@@ -1720,7 +1725,7 @@ impl Options {
     /// Default: true
     pub fn set_is_fd_close_on_exec(&mut self, enabled: bool) {
         unsafe {
-            ffi::rocksdb_options_set_is_fd_close_on_exec(self.inner, u8::from(enabled));
+            ffi::rocksdb_options_set_is_fd_close_on_exec(self.inner, c_uchar::from(enabled));
         }
     }
 
@@ -2126,7 +2131,7 @@ impl Options {
     /// Default: false
     pub fn set_unordered_write(&mut self, unordered: bool) {
         unsafe {
-            ffi::rocksdb_options_set_unordered_write(self.inner, u8::from(unordered));
+            ffi::rocksdb_options_set_unordered_write(self.inner, c_uchar::from(unordered));
         }
     }
 
@@ -2236,7 +2241,7 @@ impl Options {
     /// ```
     pub fn set_disable_auto_compactions(&mut self, disable: bool) {
         unsafe {
-            ffi::rocksdb_options_set_disable_auto_compactions(self.inner, i32::from(disable));
+            ffi::rocksdb_options_set_disable_auto_compactions(self.inner, c_int::from(disable));
         }
     }
 
@@ -2299,7 +2304,7 @@ impl Options {
     /// Default: false.
     pub fn set_inplace_update_support(&mut self, enabled: bool) {
         unsafe {
-            ffi::rocksdb_options_set_inplace_update_support(self.inner, u8::from(enabled));
+            ffi::rocksdb_options_set_inplace_update_support(self.inner, c_uchar::from(enabled));
         }
     }
 
@@ -2342,7 +2347,7 @@ impl Options {
         unsafe {
             ffi::rocksdb_options_set_skip_checking_sst_file_sizes_on_db_open(
                 self.inner,
-                u8::from(value),
+                c_uchar::from(value),
             );
         }
     }
@@ -2398,7 +2403,7 @@ impl Options {
     /// Default: false
     pub fn set_enable_pipelined_write(&mut self, value: bool) {
         unsafe {
-            ffi::rocksdb_options_set_enable_pipelined_write(self.inner, u8::from(value));
+            ffi::rocksdb_options_set_enable_pipelined_write(self.inner, c_uchar::from(value));
         }
     }
 
@@ -2532,7 +2537,7 @@ impl Options {
     /// ```
     pub fn set_report_bg_io_stats(&mut self, enable: bool) {
         unsafe {
-            ffi::rocksdb_options_set_report_bg_io_stats(self.inner, i32::from(enable));
+            ffi::rocksdb_options_set_report_bg_io_stats(self.inner, c_int::from(enable));
         }
     }
 
@@ -2638,7 +2643,7 @@ impl Options {
     /// Default: `true`
     pub fn set_advise_random_on_open(&mut self, advise: bool) {
         unsafe {
-            ffi::rocksdb_options_set_advise_random_on_open(self.inner, u8::from(advise));
+            ffi::rocksdb_options_set_advise_random_on_open(self.inner, c_uchar::from(advise));
         }
     }
 
@@ -2662,7 +2667,7 @@ impl Options {
     /// Default: false
     pub fn set_use_adaptive_mutex(&mut self, enabled: bool) {
         unsafe {
-            ffi::rocksdb_options_set_use_adaptive_mutex(self.inner, u8::from(enabled));
+            ffi::rocksdb_options_set_use_adaptive_mutex(self.inner, c_uchar::from(enabled));
         }
     }
 
@@ -2722,7 +2727,7 @@ impl Options {
     /// opts.set_wal_dir("/path/to/dir");
     /// ```
     pub fn set_wal_dir<P: AsRef<Path>>(&mut self, path: P) {
-        let p = CString::new(path.as_ref().to_string_lossy().as_bytes()).unwrap();
+        let p = to_cpath(path).unwrap();
         unsafe {
             ffi::rocksdb_options_set_wal_dir(self.inner, p.as_ptr());
         }
@@ -2780,7 +2785,7 @@ impl Options {
     /// Default: false
     pub fn set_skip_stats_update_on_db_open(&mut self, skip: bool) {
         unsafe {
-            ffi::rocksdb_options_set_skip_stats_update_on_db_open(self.inner, u8::from(skip));
+            ffi::rocksdb_options_set_skip_stats_update_on_db_open(self.inner, c_uchar::from(skip));
         }
     }
 
@@ -2816,7 +2821,7 @@ impl Options {
     /// ```
     pub fn set_allow_mmap_writes(&mut self, is_enabled: bool) {
         unsafe {
-            ffi::rocksdb_options_set_allow_mmap_writes(self.inner, u8::from(is_enabled));
+            ffi::rocksdb_options_set_allow_mmap_writes(self.inner, c_uchar::from(is_enabled));
         }
     }
 
@@ -2834,7 +2839,7 @@ impl Options {
     /// ```
     pub fn set_allow_mmap_reads(&mut self, is_enabled: bool) {
         unsafe {
-            ffi::rocksdb_options_set_allow_mmap_reads(self.inner, u8::from(is_enabled));
+            ffi::rocksdb_options_set_allow_mmap_reads(self.inner, c_uchar::from(is_enabled));
         }
     }
 
@@ -2854,7 +2859,7 @@ impl Options {
     /// ```
     pub fn set_manual_wal_flush(&mut self, is_enabled: bool) {
         unsafe {
-            ffi::rocksdb_options_set_manual_wal_flush(self.inner, u8::from(is_enabled));
+            ffi::rocksdb_options_set_manual_wal_flush(self.inner, c_uchar::from(is_enabled));
         }
     }
 
@@ -2877,7 +2882,7 @@ impl Options {
     /// ```
     pub fn set_atomic_flush(&mut self, atomic_flush: bool) {
         unsafe {
-            ffi::rocksdb_options_set_atomic_flush(self.inner, u8::from(atomic_flush));
+            ffi::rocksdb_options_set_atomic_flush(self.inner, c_uchar::from(atomic_flush));
         }
     }
 
@@ -3015,7 +3020,7 @@ impl Options {
     /// Default: false
     pub fn set_dump_malloc_stats(&mut self, enabled: bool) {
         unsafe {
-            ffi::rocksdb_options_set_dump_malloc_stats(self.inner, u8::from(enabled));
+            ffi::rocksdb_options_set_dump_malloc_stats(self.inner, c_uchar::from(enabled));
         }
     }
 
@@ -3030,7 +3035,7 @@ impl Options {
         unsafe {
             ffi::rocksdb_options_set_memtable_whole_key_filtering(
                 self.inner,
-                u8::from(whole_key_filter),
+                c_uchar::from(whole_key_filter),
             );
         }
     }
@@ -3152,7 +3157,7 @@ impl FlushOptions {
     /// ```
     pub fn set_wait(&mut self, wait: bool) {
         unsafe {
-            ffi::rocksdb_flushoptions_set_wait(self.inner, u8::from(wait));
+            ffi::rocksdb_flushoptions_set_wait(self.inner, c_uchar::from(wait));
         }
     }
 }
@@ -3181,7 +3186,7 @@ impl WriteOptions {
     /// Default: false
     pub fn set_sync(&mut self, sync: bool) {
         unsafe {
-            ffi::rocksdb_writeoptions_set_sync(self.inner, u8::from(sync));
+            ffi::rocksdb_writeoptions_set_sync(self.inner, c_uchar::from(sync));
         }
     }
 
@@ -3192,7 +3197,7 @@ impl WriteOptions {
     /// Default: false
     pub fn disable_wal(&mut self, disable: bool) {
         unsafe {
-            ffi::rocksdb_writeoptions_disable_WAL(self.inner, i32::from(disable));
+            ffi::rocksdb_writeoptions_disable_WAL(self.inner, c_int::from(disable));
         }
     }
 
@@ -3205,7 +3210,7 @@ impl WriteOptions {
         unsafe {
             ffi::rocksdb_writeoptions_set_ignore_missing_column_families(
                 self.inner,
-                u8::from(ignore),
+                c_uchar::from(ignore),
             );
         }
     }
@@ -3216,7 +3221,7 @@ impl WriteOptions {
     /// Default: false
     pub fn set_no_slowdown(&mut self, no_slowdown: bool) {
         unsafe {
-            ffi::rocksdb_writeoptions_set_no_slowdown(self.inner, u8::from(no_slowdown));
+            ffi::rocksdb_writeoptions_set_no_slowdown(self.inner, c_uchar::from(no_slowdown));
         }
     }
 
@@ -3229,7 +3234,7 @@ impl WriteOptions {
     /// Default: false
     pub fn set_low_pri(&mut self, v: bool) {
         unsafe {
-            ffi::rocksdb_writeoptions_set_low_pri(self.inner, u8::from(v));
+            ffi::rocksdb_writeoptions_set_low_pri(self.inner, c_uchar::from(v));
         }
     }
 
@@ -3242,7 +3247,10 @@ impl WriteOptions {
     /// Default: false
     pub fn set_memtable_insert_hint_per_batch(&mut self, v: bool) {
         unsafe {
-            ffi::rocksdb_writeoptions_set_memtable_insert_hint_per_batch(self.inner, u8::from(v));
+            ffi::rocksdb_writeoptions_set_memtable_insert_hint_per_batch(
+                self.inner,
+                c_uchar::from(v),
+            );
         }
     }
 }
@@ -3281,7 +3289,7 @@ impl ReadOptions {
     /// Default: true
     pub fn fill_cache(&mut self, v: bool) {
         unsafe {
-            ffi::rocksdb_readoptions_set_fill_cache(self.inner, u8::from(v));
+            ffi::rocksdb_readoptions_set_fill_cache(self.inner, c_uchar::from(v));
         }
     }
 
@@ -3350,7 +3358,7 @@ impl ReadOptions {
     /// Default: false
     pub fn set_prefix_same_as_start(&mut self, v: bool) {
         unsafe {
-            ffi::rocksdb_readoptions_set_prefix_same_as_start(self.inner, u8::from(v));
+            ffi::rocksdb_readoptions_set_prefix_same_as_start(self.inner, c_uchar::from(v));
         }
     }
 
@@ -3363,7 +3371,7 @@ impl ReadOptions {
     /// changing implementation of prefix extractor.
     pub fn set_total_order_seek(&mut self, v: bool) {
         unsafe {
-            ffi::rocksdb_readoptions_set_total_order_seek(self.inner, u8::from(v));
+            ffi::rocksdb_readoptions_set_total_order_seek(self.inner, c_uchar::from(v));
         }
     }
 
@@ -3386,7 +3394,7 @@ impl ReadOptions {
         unsafe {
             ffi::rocksdb_readoptions_set_background_purge_on_iterator_cleanup(
                 self.inner,
-                u8::from(v),
+                c_uchar::from(v),
             );
         }
     }
@@ -3398,7 +3406,7 @@ impl ReadOptions {
     /// Default: false
     pub fn set_ignore_range_deletions(&mut self, v: bool) {
         unsafe {
-            ffi::rocksdb_readoptions_set_ignore_range_deletions(self.inner, u8::from(v));
+            ffi::rocksdb_readoptions_set_ignore_range_deletions(self.inner, c_uchar::from(v));
         }
     }
 
@@ -3408,7 +3416,7 @@ impl ReadOptions {
     /// Default: true
     pub fn set_verify_checksums(&mut self, v: bool) {
         unsafe {
-            ffi::rocksdb_readoptions_set_verify_checksums(self.inner, u8::from(v));
+            ffi::rocksdb_readoptions_set_verify_checksums(self.inner, c_uchar::from(v));
         }
     }
 
@@ -3434,7 +3442,7 @@ impl ReadOptions {
     /// or seek_to_last are not supported.
     pub fn set_tailing(&mut self, v: bool) {
         unsafe {
-            ffi::rocksdb_readoptions_set_tailing(self.inner, u8::from(v));
+            ffi::rocksdb_readoptions_set_tailing(self.inner, c_uchar::from(v));
         }
     }
 
@@ -3448,7 +3456,7 @@ impl ReadOptions {
     /// Default: false
     pub fn set_pin_data(&mut self, v: bool) {
         unsafe {
-            ffi::rocksdb_readoptions_set_pin_data(self.inner, u8::from(v));
+            ffi::rocksdb_readoptions_set_pin_data(self.inner, c_uchar::from(v));
         }
     }
 }
@@ -3469,7 +3477,7 @@ impl IngestExternalFileOptions {
     /// Can be set to true to move the files instead of copying them.
     pub fn set_move_files(&mut self, v: bool) {
         unsafe {
-            ffi::rocksdb_ingestexternalfileoptions_set_move_files(self.inner, u8::from(v));
+            ffi::rocksdb_ingestexternalfileoptions_set_move_files(self.inner, c_uchar::from(v));
         }
     }
 
@@ -3479,7 +3487,7 @@ impl IngestExternalFileOptions {
         unsafe {
             ffi::rocksdb_ingestexternalfileoptions_set_snapshot_consistency(
                 self.inner,
-                u8::from(v),
+                c_uchar::from(v),
             );
         }
     }
@@ -3488,7 +3496,10 @@ impl IngestExternalFileOptions {
     /// overlaps with existing keys or tombstones in the DB.
     pub fn set_allow_global_seqno(&mut self, v: bool) {
         unsafe {
-            ffi::rocksdb_ingestexternalfileoptions_set_allow_global_seqno(self.inner, u8::from(v));
+            ffi::rocksdb_ingestexternalfileoptions_set_allow_global_seqno(
+                self.inner,
+                c_uchar::from(v),
+            );
         }
     }
 
@@ -3498,7 +3509,7 @@ impl IngestExternalFileOptions {
         unsafe {
             ffi::rocksdb_ingestexternalfileoptions_set_allow_blocking_flush(
                 self.inner,
-                u8::from(v),
+                c_uchar::from(v),
             );
         }
     }
@@ -3512,7 +3523,7 @@ impl IngestExternalFileOptions {
     /// All files will be ingested at the bottommost level with seqno=0.
     pub fn set_ingest_behind(&mut self, v: bool) {
         unsafe {
-            ffi::rocksdb_ingestexternalfileoptions_set_ingest_behind(self.inner, u8::from(v));
+            ffi::rocksdb_ingestexternalfileoptions_set_ingest_behind(self.inner, c_uchar::from(v));
         }
     }
 }
@@ -3823,7 +3834,10 @@ impl CompactOptions {
     /// and wait for existing automatic compaction jobs to finish.
     pub fn set_exclusive_manual_compaction(&mut self, v: bool) {
         unsafe {
-            ffi::rocksdb_compactoptions_set_exclusive_manual_compaction(self.inner, u8::from(v));
+            ffi::rocksdb_compactoptions_set_exclusive_manual_compaction(
+                self.inner,
+                c_uchar::from(v),
+            );
         }
     }
 
@@ -3838,7 +3852,7 @@ impl CompactOptions {
     /// of holding the data or given level (specified non-negative target_level).
     pub fn set_change_level(&mut self, v: bool) {
         unsafe {
-            ffi::rocksdb_compactoptions_set_change_level(self.inner, u8::from(v));
+            ffi::rocksdb_compactoptions_set_change_level(self.inner, c_uchar::from(v));
         }
     }
 
@@ -3859,12 +3873,12 @@ pub struct DBPath {
 impl DBPath {
     /// Create a new path
     pub fn new<P: AsRef<Path>>(path: P, target_size: u64) -> Result<Self, Error> {
-        let p = CString::new(path.as_ref().to_string_lossy().as_bytes()).unwrap();
+        let p = to_cpath(path.as_ref()).unwrap();
         let dbpath = unsafe { ffi::rocksdb_dbpath_create(p.as_ptr(), target_size) };
         if dbpath.is_null() {
             Err(Error::new(format!(
                 "Could not create path for storing sst files at location: {}",
-                path.as_ref().to_string_lossy()
+                path.as_ref().display()
             )))
         } else {
             Ok(DBPath { inner: dbpath })

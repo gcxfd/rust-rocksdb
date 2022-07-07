@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::db::{DBAccess, DB};
-use crate::{ffi, Error, ReadOptions, WriteBatch};
+use std::{marker::PhantomData, slice};
+
 use libc::{c_char, c_uchar, size_t};
-use std::marker::PhantomData;
-use std::slice;
+
+use crate::{
+    db::{DBAccess, DB},
+    ffi, Error, ReadOptions, WriteBatch,
+};
 
 /// A type alias to keep compatibility. See [`DBRawIteratorWithThreadMode`] for details
 pub type DBRawIterator<'a> = DBRawIteratorWithThreadMode<'a, DB>;
@@ -70,7 +73,7 @@ pub type DBRawIterator<'a> = DBRawIteratorWithThreadMode<'a, DB>;
 /// let _ = DB::destroy(&Options::default(), path);
 /// ```
 pub struct DBRawIteratorWithThreadMode<'a, D: DBAccess> {
-    inner: *mut ffi::rocksdb_iterator_t,
+    inner: std::ptr::NonNull<ffi::rocksdb_iterator_t>,
 
     /// When iterate_upper_bound is set, the inner C iterator keeps a pointer to the upper bound
     /// inside `_readopts`. Storing this makes sure the upper bound is always alive when the
@@ -108,7 +111,7 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
     /// returned `false`, use the [`status`](DBRawIteratorWithThreadMode::status) method. `status` will never
     /// return an error when `valid` is `true`.
     pub fn valid(&self) -> bool {
-        unsafe { ffi::rocksdb_iter_valid(self.inner) != 0 }
+        unsafe { ffi::rocksdb_iter_valid(self.inner.as_ptr()) != 0 }
     }
 
     /// Returns an error `Result` if the iterator has encountered an error
@@ -118,7 +121,7 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
     /// Performing a seek will discard the current status.
     pub fn status(&self) -> Result<(), Error> {
         unsafe {
-            ffi_try!(ffi::rocksdb_iter_get_error(self.inner));
+            ffi_try!(ffi::rocksdb_iter_get_error(self.inner.as_ptr()));
         }
         Ok(())
     }
@@ -156,7 +159,7 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
     /// ```
     pub fn seek_to_first(&mut self) {
         unsafe {
-            ffi::rocksdb_iter_seek_to_first(self.inner);
+            ffi::rocksdb_iter_seek_to_first(self.inner.as_ptr());
         }
     }
 
@@ -193,7 +196,7 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
     /// ```
     pub fn seek_to_last(&mut self) {
         unsafe {
-            ffi::rocksdb_iter_seek_to_last(self.inner);
+            ffi::rocksdb_iter_seek_to_last(self.inner.as_ptr());
         }
     }
 
@@ -228,7 +231,7 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
 
         unsafe {
             ffi::rocksdb_iter_seek(
-                self.inner,
+                self.inner.as_ptr(),
                 key.as_ptr() as *const c_char,
                 key.len() as size_t,
             );
@@ -267,7 +270,7 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
 
         unsafe {
             ffi::rocksdb_iter_seek_for_prev(
-                self.inner,
+                self.inner.as_ptr(),
                 key.as_ptr() as *const c_char,
                 key.len() as size_t,
             );
@@ -277,29 +280,21 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
     /// Seeks to the next key.
     pub fn next(&mut self) {
         unsafe {
-            ffi::rocksdb_iter_next(self.inner);
+            ffi::rocksdb_iter_next(self.inner.as_ptr());
         }
     }
 
     /// Seeks to the previous key.
     pub fn prev(&mut self) {
         unsafe {
-            ffi::rocksdb_iter_prev(self.inner);
+            ffi::rocksdb_iter_prev(self.inner.as_ptr());
         }
     }
 
     /// Returns a slice of the current key.
     pub fn key(&self) -> Option<&[u8]> {
         if self.valid() {
-            // Safety Note: This is safe as all methods that may invalidate the buffer returned
-            // take `&mut self`, so borrow checker will prevent use of buffer after seek.
-            unsafe {
-                let mut key_len: size_t = 0;
-                let key_len_ptr: *mut size_t = &mut key_len;
-                let key_ptr = ffi::rocksdb_iter_key(self.inner, key_len_ptr) as *const c_uchar;
-
-                Some(slice::from_raw_parts(key_ptr, key_len as usize))
-            }
+            Some(self.key_impl())
         } else {
             None
         }
@@ -308,17 +303,42 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
     /// Returns a slice of the current value.
     pub fn value(&self) -> Option<&[u8]> {
         if self.valid() {
-            // Safety Note: This is safe as all methods that may invalidate the buffer returned
-            // take `&mut self`, so borrow checker will prevent use of buffer after seek.
-            unsafe {
-                let mut val_len: size_t = 0;
-                let val_len_ptr: *mut size_t = &mut val_len;
-                let val_ptr = ffi::rocksdb_iter_value(self.inner, val_len_ptr) as *const c_uchar;
-
-                Some(slice::from_raw_parts(val_ptr, val_len as usize))
-            }
+            Some(self.value_impl())
         } else {
             None
+        }
+    }
+
+    /// Returns pair with slice of the current key and current value.
+    pub fn item(&self) -> Option<(&[u8], &[u8])> {
+        if self.valid() {
+            Some((self.key_impl(), self.value_impl()))
+        } else {
+            None
+        }
+    }
+
+    /// Returns a slice of the current key; assumes the iterator is valid.
+    fn key_impl(&self) -> &[u8] {
+        // Safety Note: This is safe as all methods that may invalidate the buffer returned
+        // take `&mut self`, so borrow checker will prevent use of buffer after seek.
+        unsafe {
+            let mut key_len: size_t = 0;
+            let key_len_ptr: *mut size_t = &mut key_len;
+            let key_ptr = ffi::rocksdb_iter_key(self.inner.as_ptr(), key_len_ptr);
+            slice::from_raw_parts(key_ptr as *const c_uchar, key_len as usize)
+        }
+    }
+
+    /// Returns a slice of the current value; assumes the iterator is valid.
+    fn value_impl(&self) -> &[u8] {
+        // Safety Note: This is safe as all methods that may invalidate the buffer returned
+        // take `&mut self`, so borrow checker will prevent use of buffer after seek.
+        unsafe {
+            let mut val_len: size_t = 0;
+            let val_len_ptr: *mut size_t = &mut val_len;
+            let val_ptr = ffi::rocksdb_iter_value(self.inner.as_ptr(), val_len_ptr);
+            slice::from_raw_parts(val_ptr as *const c_uchar, val_len as usize)
         }
     }
 }
@@ -326,7 +346,7 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
 impl<'a, D: DBAccess> Drop for DBRawIteratorWithThreadMode<'a, D> {
     fn drop(&mut self) {
         unsafe {
-            ffi::rocksdb_iter_destroy(self.inner);
+            ffi::rocksdb_iter_destroy(self.inner.as_ptr());
         }
     }
 }
@@ -466,12 +486,8 @@ impl<'a, D: DBAccess> Iterator for DBIteratorWithThreadMode<'a, D> {
             }
         }
 
-        if self.raw.valid() {
-            // .key() and .value() only ever return None if valid == false, which we've just checked
-            Some((
-                Box::from(self.raw.key().unwrap()),
-                Box::from(self.raw.value().unwrap()),
-            ))
+        if let Some((key, value)) = self.raw.item() {
+            Some((Box::from(key), Box::from(value)))
         } else {
             None
         }
@@ -525,6 +541,10 @@ impl Iterator for DBWALIterator {
     type Item = (u64, WriteBatch);
 
     fn next(&mut self) -> Option<(u64, WriteBatch)> {
+        if !self.valid() {
+            return None;
+        }
+
         // Seek to the next write batch.
         unsafe {
             ffi::rocksdb_wal_iter_next(self.inner);
