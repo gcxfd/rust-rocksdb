@@ -279,16 +279,16 @@ impl<T: ThreadMode, I: DBInner> DBAccess for DBCommon<T, I> {
         self.multi_get_cf_opt(keys_cf, readopts)
     }
 
-    fn batched_multi_get_cf_opt<K, I>(
+    fn batched_multi_get_cf_opt<K, Iter>(
         &self,
         cf: &impl AsColumnFamilyRef,
-        keys: I,
+        keys: Iter,
         sorted_input: bool,
         readopts: &ReadOptions,
     ) -> Vec<Result<Option<DBPinnableSlice>, Error>>
     where
         K: AsRef<[u8]>,
-        I: IntoIterator<Item = K>,
+        Iter: IntoIterator<Item = K>,
     {
         self.batched_multi_get_cf_opt(cf, keys, sorted_input, readopts)
     }
@@ -1195,7 +1195,7 @@ impl<T: ThreadMode, Inner: DBInner> DBCommon<T, Inner> {
 
         unsafe {
             ffi::rocksdb_batched_multi_get_cf(
-                self.inner,
+                self.inner.inner(),
                 readopts.inner,
                 cf.inner(),
                 ptr_keys.len(),
@@ -1744,25 +1744,8 @@ impl<T: ThreadMode, Inner: DBInner> DBCommon<T, Inner> {
                 )));
             }
         };
-
-        unsafe {
-            let value = ffi::rocksdb_property_value(self.inner.inner(), prop_name.as_ptr());
-            if value.is_null() {
-                return Ok(None);
-            }
-
-            let str_value = match CStr::from_ptr(value).to_str() {
-                Ok(s) => s.to_owned(),
-                Err(e) => {
-                    return Err(Error::new(format!(
-                        "Failed to convert property value to string: {}",
-                        e
-                    )));
-                }
-            };
-
-            libc::free(value as *mut c_void);
-            Ok(Some(str_value))
+        if value.is_null() {
+            return Ok(None);
         }
         let result = match unsafe { CStr::from_ptr(value) }.to_str() {
             Ok(s) => parse(s).map(|value| Some(value)),
@@ -1784,7 +1767,7 @@ impl<T: ThreadMode, Inner: DBInner> DBCommon<T, Inner> {
     pub fn property_value(&self, name: impl CStrLike) -> Result<Option<String>, Error> {
         Self::property_value_impl(
             name,
-            |prop_name| unsafe { ffi::rocksdb_property_value(self.inner, prop_name) },
+            |prop_name| unsafe { ffi::rocksdb_property_value(self.inner.inner(), prop_name) },
             |str_value| Ok(str_value.to_owned()),
         )
     }
@@ -1801,7 +1784,7 @@ impl<T: ThreadMode, Inner: DBInner> DBCommon<T, Inner> {
         Self::property_value_impl(
             name,
             |prop_name| unsafe {
-                ffi::rocksdb_property_value_cf(self.inner, cf.inner(), prop_name)
+                ffi::rocksdb_property_value_cf(self.inner.inner(), cf.inner(), prop_name)
             },
             |str_value| Ok(str_value.to_owned()),
         )
@@ -1823,7 +1806,7 @@ impl<T: ThreadMode, Inner: DBInner> DBCommon<T, Inner> {
     pub fn property_int_value(&self, name: impl CStrLike) -> Result<Option<u64>, Error> {
         Self::property_value_impl(
             name,
-            |prop_name| unsafe { ffi::rocksdb_property_value(self.inner, prop_name) },
+            |prop_name| unsafe { ffi::rocksdb_property_value(self.inner.inner(), prop_name) },
             Self::parse_property_int_value,
         )
     }
@@ -1840,7 +1823,7 @@ impl<T: ThreadMode, Inner: DBInner> DBCommon<T, Inner> {
         Self::property_value_impl(
             name,
             |prop_name| unsafe {
-                ffi::rocksdb_property_value_cf(self.inner, cf.inner(), prop_name)
+                ffi::rocksdb_property_value_cf(self.inner.inner(), cf.inner(), prop_name)
             },
             Self::parse_property_int_value,
         )

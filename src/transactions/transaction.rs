@@ -15,12 +15,13 @@
 
 use std::{marker::PhantomData, ptr};
 
+use libc::{c_char, c_void, size_t};
+
 use crate::{
     db::{convert_values, DBAccess},
     ffi, AsColumnFamilyRef, DBIteratorWithThreadMode, DBPinnableSlice, DBRawIteratorWithThreadMode,
     Direction, Error, IteratorMode, ReadOptions, SnapshotWithThreadMode, WriteBatchWithTransaction,
 };
-use libc::{c_char, c_void, size_t};
 
 /// RocksDB Transaction.
 ///
@@ -36,6 +37,20 @@ pub struct Transaction<'db, DB> {
 unsafe impl<'db, DB> Send for Transaction<'db, DB> {}
 
 impl<'db, DB> DBAccess for Transaction<'db, DB> {
+    fn batched_multi_get_cf_opt<K, I>(
+        &self,
+        cf: &impl AsColumnFamilyRef,
+        keys: I,
+        sorted_input: bool,
+        readopts: &ReadOptions,
+    ) -> Vec<Result<Option<DBPinnableSlice>, Error>>
+    where
+        K: AsRef<[u8]>,
+        I: IntoIterator<Item = K>,
+    {
+        todo!()
+    }
+
     unsafe fn create_snapshot(&self) -> *const ffi::rocksdb_snapshot_t {
         ffi::rocksdb_transaction_get_snapshot(self.inner)
     }

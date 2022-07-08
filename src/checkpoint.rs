@@ -17,7 +17,7 @@
 //!
 //! [1]: https://github.com/facebook/rocksdb/wiki/Checkpoints
 
-use std::{ffi::CString, marker::PhantomData, path::Path};
+use std::{marker::PhantomData, path::Path};
 
 use crate::{db::DBInner, ffi, ffi_util::to_cpath, Error, DB};
 

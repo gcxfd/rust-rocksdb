@@ -15,7 +15,7 @@
 
 use std::path::Path;
 
-use libc::{c_int, c_uchar};
+use libc::c_int;
 
 use crate::{db::DBInner, ffi, ffi_util::to_cpath, Error, DB};
 

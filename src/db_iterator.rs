@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{marker::PhantomData, slice};
+use std::{marker::PhantomData, ptr::NonNull, slice};
 
 use libc::{c_char, c_uchar, size_t};
 
@@ -73,7 +73,7 @@ pub type DBRawIterator<'a> = DBRawIteratorWithThreadMode<'a, DB>;
 /// let _ = DB::destroy(&Options::default(), path);
 /// ```
 pub struct DBRawIteratorWithThreadMode<'a, D: DBAccess> {
-    inner: std::ptr::NonNull<ffi::rocksdb_iterator_t>,
+    inner: NonNull<ffi::rocksdb_iterator_t>,
 
     /// When iterate_upper_bound is set, the inner C iterator keeps a pointer to the upper bound
     /// inside `_readopts`. Storing this makes sure the upper bound is always alive when the
@@ -86,7 +86,7 @@ pub struct DBRawIteratorWithThreadMode<'a, D: DBAccess> {
 impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
     pub(crate) fn new(db: &D, readopts: ReadOptions) -> Self {
         Self {
-            inner: unsafe { db.create_iterator(&readopts) },
+            inner: unsafe { NonNull::new_unchecked(db.create_iterator(&readopts)) },
             _readopts: readopts,
             db: PhantomData,
         }
@@ -98,7 +98,7 @@ impl<'a, D: DBAccess> DBRawIteratorWithThreadMode<'a, D> {
         readopts: ReadOptions,
     ) -> Self {
         Self {
-            inner: unsafe { db.create_iterator_cf(cf_handle, &readopts) },
+            inner: unsafe { NonNull::new_unchecked(db.create_iterator_cf(cf_handle, &readopts)) },
             _readopts: readopts,
             db: PhantomData,
         }

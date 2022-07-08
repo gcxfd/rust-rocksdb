@@ -23,6 +23,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use ffi::rocksdb_transaction_t;
+use libc::{c_char, c_int, c_void, size_t};
+
 use crate::{
     column_family::UnboundColumnFamily,
     db::{convert_values, DBAccess},
@@ -35,8 +38,6 @@ use crate::{
     ThreadMode, Transaction, TransactionDBOptions, TransactionOptions, WriteBatchWithTransaction,
     WriteOptions, DB, DEFAULT_COLUMN_FAMILY_NAME,
 };
-use ffi::rocksdb_transaction_t;
-use libc::{c_char, c_int, c_void, size_t};
 
 #[cfg(not(feature = "multi-threaded-cf"))]
 type DefaultThreadMode = crate::SingleThreaded;
@@ -57,7 +58,7 @@ type DefaultThreadMode = crate::MultiThreaded;
 /// {
 ///     let db: TransactionDB = TransactionDB::open_default(path).unwrap();
 ///     db.put(b"my key", b"my value").unwrap();
-///     
+///
 ///     // create transaction
 ///     let txn = db.transaction();
 ///     txn.put(b"key2", b"value2");
@@ -81,6 +82,20 @@ unsafe impl<T: ThreadMode> Send for TransactionDB<T> {}
 unsafe impl<T: ThreadMode> Sync for TransactionDB<T> {}
 
 impl<T: ThreadMode> DBAccess for TransactionDB<T> {
+    fn batched_multi_get_cf_opt<K, I>(
+        &self,
+        cf: &impl AsColumnFamilyRef,
+        keys: I,
+        sorted_input: bool,
+        readopts: &ReadOptions,
+    ) -> Vec<Result<Option<DBPinnableSlice>, Error>>
+    where
+        K: AsRef<[u8]>,
+        I: IntoIterator<Item = K>,
+    {
+        todo!()
+    }
+
     unsafe fn create_snapshot(&self) -> *const ffi::rocksdb_snapshot_t {
         ffi::rocksdb_transactiondb_create_snapshot(self.inner)
     }
